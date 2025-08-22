@@ -12,7 +12,13 @@ from ultralytics import YOLO
 
 
 class RestrictedAreaMonitor:
-    def __init__(self, model_path="yolov8n.pt", camera_id=0, save_output=True, output_path="output_video.mp4"):
+    def __init__(
+        self,
+        model_path="yolov8l.pt",
+        camera_id=0,
+        save_output=True,
+        output_path="output_video.mp4",
+    ):
         # Initialize YOLO model
         self.model = YOLO(model_path)
 
@@ -76,22 +82,21 @@ class RestrictedAreaMonitor:
         """Initialize video writer with frame dimensions"""
         if self.save_output and not self.output_initialized:
             height, width = frame_shape[:2]
-            
+
             # Define the codec and create VideoWriter object
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # You can also use 'XVID'
-            
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # You can also use 'XVID'
+
             self.video_writer = cv2.VideoWriter(
-                self.output_path, 
-                fourcc, 
-                self.video_fps, 
-                (width, height)
+                self.output_path, fourcc, self.video_fps, (width, height)
             )
-            
+
             if self.video_writer.isOpened():
                 self.output_initialized = True
-                print(f"✅ Video writer initialized: {self.output_path} ({width}x{height} @ {self.video_fps} FPS)")
+                print(
+                    f"✅ Video writer initialized: {self.output_path} ({width}x{height} @ {self.video_fps} FPS)"
+                )
             else:
-                print(f"❌ Failed to initialize video writer")
+                print("❌ Failed to initialize video writer")
                 self.save_output = False
 
     def get_video_fps(self):
@@ -117,8 +122,13 @@ class RestrictedAreaMonitor:
             self.cap.set(cv2.CAP_PROP_FPS, 15)
 
         # For video files, don't override the resolution
-        if not (isinstance(self.camera_id, str) and 
-                (self.camera_id.startswith("rtsp://") or self.camera_id.startswith("http://"))):
+        if not (
+            isinstance(self.camera_id, str)
+            and (
+                self.camera_id.startswith("rtsp://")
+                or self.camera_id.startswith("http://")
+            )
+        ):
             # Only set resolution for live cameras, not video files
             if isinstance(self.camera_id, int):
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -132,26 +142,28 @@ class RestrictedAreaMonitor:
         """Continuously capture frames in separate thread with proper timing"""
         consecutive_failures = 0
         max_failures = 10
-        is_video_file = isinstance(self.camera_id, str) and self.camera_id.lower().endswith((".mp4", ".avi", ".mov", ".mkv"))
-        
+        is_video_file = isinstance(
+            self.camera_id, str
+        ) and self.camera_id.lower().endswith((".mp4", ".avi", ".mov", ".mkv"))
+
         # For video files, we want to respect the original timing
         if is_video_file:
             target_frame_time = self.frame_time
         else:
             target_frame_time = 1.0 / 30  # 30 FPS for live cameras
-        
+
         last_capture_time = time.time()
 
         while self.running:
             current_time = time.time()
-            
+
             # For video files, maintain proper timing
             if is_video_file:
                 time_since_last = current_time - last_capture_time
                 if time_since_last < target_frame_time:
                     time.sleep(target_frame_time - time_since_last)
                     current_time = time.time()
-            
+
             ret, frame = self.cap.read()
 
             if ret:
@@ -181,9 +193,13 @@ class RestrictedAreaMonitor:
                     time.sleep(0.1)
                     continue
                 else:
-                    print(f"Failed to read frame (attempt {consecutive_failures}/{max_failures})")
+                    print(
+                        f"Failed to read frame (attempt {consecutive_failures}/{max_failures})"
+                    )
                     if consecutive_failures >= max_failures:
-                        print("Too many consecutive failures, attempting to reconnect...")
+                        print(
+                            "Too many consecutive failures, attempting to reconnect..."
+                        )
                         self.reconnect_camera()
                         consecutive_failures = 0
                     time.sleep(0.1)
@@ -202,8 +218,10 @@ class RestrictedAreaMonitor:
         frame = None
 
         # For video files, we want to get frames in order, not skip
-        is_video_file = isinstance(self.camera_id, str) and self.camera_id.lower().endswith((".mp4", ".avi", ".mov", ".mkv"))
-        
+        is_video_file = isinstance(
+            self.camera_id, str
+        ) and self.camera_id.lower().endswith((".mp4", ".avi", ".mov", ".mkv"))
+
         if is_video_file:
             # For video files, get one frame at a time
             try:
@@ -228,13 +246,17 @@ class RestrictedAreaMonitor:
         if os.path.exists(self.config_file):
             with open(self.config_file, "r") as f:
                 self.restricted_areas = json.load(f)
-            print(f"Loaded {len(self.restricted_areas)} restricted areas from {self.config_file}")
+            print(
+                f"Loaded {len(self.restricted_areas)} restricted areas from {self.config_file}"
+            )
 
     def save_areas(self):
         """Save restricted areas to config file"""
         with open(self.config_file, "w") as f:
             json.dump(self.restricted_areas, f, indent=4)
-        print(f"Saved {len(self.restricted_areas)} restricted areas to {self.config_file}")
+        print(
+            f"Saved {len(self.restricted_areas)} restricted areas to {self.config_file}"
+        )
 
     def point_in_polygon(self, point, polygon):
         """Check if a point is inside a polygon using ray casting algorithm"""
@@ -295,7 +317,7 @@ class RestrictedAreaMonitor:
                 (int(x1), int(y1)),  # Top-left
                 (int(x2), int(y1)),  # Top-right
                 (int(x1), int(y2)),  # Bottom-left
-                (int(x2), int(y2))   # Bottom-right
+                (int(x2), int(y2)),  # Bottom-right
             ]
 
             # Check against all restricted areas
@@ -306,7 +328,7 @@ class RestrictedAreaMonitor:
                     if self.point_in_polygon(corner, area):
                         intrusion_detected = True
                         break
-                
+
                 if intrusion_detected:
                     person_center = (int((x1 + x2) / 2), int(y2))
                     intrusions.append(
@@ -352,9 +374,13 @@ class RestrictedAreaMonitor:
                 print("Alert sound error:", e)
 
             # Print alert to console
-            print(f"🚨 ALERT: {len(intrusions)} person(s) detected in restricted area(s)!")
+            print(
+                f"🚨 ALERT: {len(intrusions)} person(s) detected in restricted area(s)!"
+            )
             for intrusion in intrusions:
-                print(f"   - Area {intrusion['area_index'] + 1} at {intrusion['timestamp']}")
+                print(
+                    f"   - Area {intrusion['area_index'] + 1} at {intrusion['timestamp']}"
+                )
 
     def play_alert_sound(self):
         """Play alert sound"""
@@ -395,17 +421,18 @@ class RestrictedAreaMonitor:
 
             # Choose color based on intrusion status
             color = (0, 0, 255) if is_intruder else (0, 255, 0)
-            thickness = 3 if is_intruder else 2
+            thickness = 3 if is_intruder else -1
 
-            # Draw bounding box
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+            if is_intruder:
+                # Draw bounding box
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
 
             # Draw center point
             center = (int((x1 + x2) / 2), int(y2))
             cv2.circle(frame, center, 5, color, -1)
 
             # Label
-            label = f"INTRUDER {conf:.2f}" if is_intruder else f"Person {conf:.2f}"
+            label = f"INTRUDER {conf:.2f}" if is_intruder else ""
             cv2.putText(
                 frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2
             )
@@ -422,7 +449,9 @@ class RestrictedAreaMonitor:
         elif event == cv2.EVENT_RBUTTONDOWN:
             if len(self.temp_points) >= 3:
                 self.restricted_areas.append(self.temp_points.copy())
-                print(f"Restricted area {len(self.restricted_areas)} created with {len(self.temp_points)} points")
+                print(
+                    f"Restricted area {len(self.restricted_areas)} created with {len(self.temp_points)} points"
+                )
                 self.save_areas()
                 self.temp_points = []
             else:
@@ -450,16 +479,18 @@ class RestrictedAreaMonitor:
         # Performance tracking
         fps_counter = 0
         fps_start_time = time.time()
-        
+
         # Frame rate control for display
-        is_video_file = isinstance(self.camera_id, str) and self.camera_id.lower().endswith((".mp4", ".avi", ".mov", ".mkv"))
-        target_display_time = self.frame_time if is_video_file else 1.0/30
+        is_video_file = isinstance(
+            self.camera_id, str
+        ) and self.camera_id.lower().endswith((".mp4", ".avi", ".mov", ".mkv"))
+        target_display_time = self.frame_time if is_video_file else 1.0 / 30
         last_display_time = time.time()
 
         try:
             while True:
                 current_time = time.time()
-                
+
                 # Control display frame rate
                 time_since_last_display = current_time - last_display_time
                 if time_since_last_display < target_display_time:
@@ -596,15 +627,15 @@ class RestrictedAreaMonitor:
                     )
 
                 cv2.imshow("Restricted Area Monitor", frame)
-                
+
                 # Save frame to output video
                 if self.save_output:
                     if not self.output_initialized:
                         self.initialize_video_writer(frame.shape)
-                    
+
                     if self.output_initialized and self.video_writer:
                         self.video_writer.write(frame)
-                
+
                 # Handle keyboard input with minimal delay
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord("q"):
@@ -612,12 +643,16 @@ class RestrictedAreaMonitor:
                 elif key == ord("s"):
                     self.setup_mode = not self.setup_mode
                     if self.setup_mode:
-                        print("Entered setup mode - click to add points for restricted areas")
+                        print(
+                            "Entered setup mode - click to add points for restricted areas"
+                        )
                     else:
                         print("Exited setup mode")
                         if len(self.temp_points) >= 3:
                             self.restricted_areas.append(self.temp_points.copy())
-                            print(f"Automatically added last area with {len(self.temp_points)} points")
+                            print(
+                                f"Automatically added last area with {len(self.temp_points)} points"
+                            )
                             self.save_areas()
                         self.temp_points = []
                 elif key == ord("c"):
@@ -636,13 +671,13 @@ class RestrictedAreaMonitor:
 
             if self.cap:
                 self.cap.release()
-            
+
             # Release video writer
             if self.video_writer:
                 self.video_writer.release()
                 if self.save_output:
                     print(f"✅ Output video saved to: {self.output_path}")
-            
+
             cv2.destroyAllWindows()
             pygame.mixer.quit()
             print("✅ System shutdown complete")
@@ -651,10 +686,10 @@ class RestrictedAreaMonitor:
 if __name__ == "__main__":
     # Initialize and run the monitor
     monitor = RestrictedAreaMonitor(
-        model_path="yolov8n.pt",
-        camera_id=r"D:\ai_workspace\R&D\counting_part\data\images\bin\853889-sd_640_360_25fps.mp4",
+        model_path="yolo11l.pt",
+        camera_id=r"D:\ai_workspace\_Archive\data\HumanDet\VID-20250822-WA0011.mp4",
         save_output=True,  # Enable video saving
-        output_path="restricted_area_output.mp4"  # Output video filename
+        output_path="restricted_area_output.mp4",  # Output video filename
     )
 
     try:
