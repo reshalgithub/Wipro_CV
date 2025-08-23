@@ -50,6 +50,10 @@ class RestrictedAreaMonitor:
         # Restricted area coordinates (start empty)
         self.restricted_areas = []
 
+        # Track intrusion status for each area
+        self.area_intrusion_status = {}  # area_index -> True/False
+        self.area_last_intrusion_time = {}  # area_index -> timestamp
+
         # Load from config if exists
         self.load_areas()
 
@@ -77,6 +81,10 @@ class RestrictedAreaMonitor:
 
         # Timing control
         self.last_frame_time = time.time()
+
+        # Status circle settings
+        self.circle_radius = 20
+        self.circle_offset_y = -30  # Distance above the area center
 
     def initialize_video_writer(self, frame_shape):
         """Initialize video writer with frame dimensions"""
@@ -249,6 +257,10 @@ class RestrictedAreaMonitor:
             print(
                 f"Loaded {len(self.restricted_areas)} restricted areas from {self.config_file}"
             )
+            # Initialize intrusion status for loaded areas
+            for i in range(len(self.restricted_areas)):
+                self.area_intrusion_status[i] = False
+                self.area_last_intrusion_time[i] = None
 
     def save_areas(self):
         """Save restricted areas to config file"""
@@ -278,6 +290,75 @@ class RestrictedAreaMonitor:
 
         return inside
 
+    def get_area_center(self, area):
+        """Calculate the center point of an area"""
+        center_x = int(np.mean([p[0] for p in area]))
+        center_y = int(np.mean([p[1] for p in area]))
+        return (center_x, center_y)
+
+    def get_area_top_point(self, area):
+        """Get the topmost point of an area for placing the status circle"""
+        min_y = min(p[1] for p in area)
+        center_x = int(np.mean([p[0] for p in area]))
+        return (center_x, min_y + self.circle_offset_y)
+
+    def draw_status_circles(self, frame):
+        """Draw status circles for each restricted area"""
+        for i, area in enumerate(self.restricted_areas):
+            # Get position for the status circle
+            circle_pos = self.get_area_top_point(area)
+            
+            # Determine circle color based on intrusion status
+            is_intruded = self.area_intrusion_status.get(i, False)
+            
+            if is_intruded:
+                # Red circle for intrusion
+                circle_color = (0, 0, 255)
+                border_color = (0, 0, 200)
+                text_color = (255, 255, 255)
+                status_text = "ALERT"
+            else:
+                # Green circle for safe
+                circle_color = (0, 255, 0)
+                border_color = (0, 200, 0)
+                text_color = (0, 0, 0)
+                status_text = "SAFE"
+            
+            # Draw filled circle
+            cv2.circle(frame, circle_pos, self.circle_radius, circle_color, -1)
+            
+            # Draw border
+            cv2.circle(frame, circle_pos, self.circle_radius, border_color, 2)
+            
+            # Add zone number in the circle
+            zone_text = str(i + 1)
+            text_size = cv2.getTextSize(zone_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+            text_x = circle_pos[0] - text_size[0] // 2
+            text_y = circle_pos[1] + text_size[1] // 2
+            cv2.putText(
+                frame,
+                zone_text,
+                (text_x, text_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                text_color,
+                2
+            )
+            
+            # Add status text below the circle
+            status_size = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+            status_x = circle_pos[0] - status_size[0] // 2
+            status_y = circle_pos[1] + self.circle_radius + 15
+            cv2.putText(
+                frame,
+                status_text,
+                (status_x, status_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.4,
+                border_color,
+                1
+            )
+
     def draw_restricted_areas(self, frame):
         """Draw restricted area boundaries on frame"""
         for i, area in enumerate(self.restricted_areas):
@@ -285,26 +366,49 @@ class RestrictedAreaMonitor:
             pts = np.array(area, np.int32)
             pts = pts.reshape((-1, 1, 2))
 
-            # Fill area with semi-transparent red
+            # Determine area color based on intrusion status
+            is_intruded = self.area_intrusion_status.get(i, False)
+            area_color = (0, 0, 200)
+
+            # Fill area with semi-transparent color
             overlay = frame.copy()
-            cv2.fillPoly(overlay, [pts], (0, 0, 255))
-            cv2.addWeighted(overlay, 0.3, frame, 0.7, 0, frame)
+            cv2.fillPoly(overlay, [pts], area_color)
+            alpha = 0.4 if is_intruded else 0.3
+            cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 
-            # Draw border
-            cv2.polylines(frame, [pts], True, (0, 0, 255), 3)
+            # Draw border with different thickness based on status
+            border_thickness = 4 if is_intruded else 3
+            cv2.polylines(frame, [pts], True, area_color, border_thickness)
 
-            # Add label
-            center_x = int(np.mean([p[0] for p in area]))
-            center_y = int(np.mean([p[1] for p in area]))
+            # Add label at the center
+            center = self.get_area_center(area)
+            label_text = f"RESTRICTED ZONE {i + 1}"
+            if is_intruded:
+                label_text += " - BREACH!"
+                
             cv2.putText(
                 frame,
-                f"RESTRICTED ZONE {i + 1}",
-                (center_x - 80, center_y),
+                label_text,
+                (center[0] - 80, center[1]),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 (255, 255, 255),
                 2,
             )
+
+    def update_area_status(self, intrusions):
+        """Update the intrusion status for each area"""
+        current_time = datetime.now()
+        
+        # Reset all areas to safe first
+        for i in range(len(self.restricted_areas)):
+            self.area_intrusion_status[i] = False
+        
+        # Mark intruded areas
+        for intrusion in intrusions:
+            area_idx = intrusion["area_index"]
+            self.area_intrusion_status[area_idx] = True
+            self.area_last_intrusion_time[area_idx] = current_time
 
     def check_intrusion(self, detections):
         """Check if any detected person is in restricted area"""
@@ -341,6 +445,9 @@ class RestrictedAreaMonitor:
                     )
                     break
 
+        # Update area status based on current intrusions
+        self.update_area_status(intrusions)
+        
         return intrusions
 
     def trigger_alert(self, intrusions):
@@ -448,7 +555,13 @@ class RestrictedAreaMonitor:
 
         elif event == cv2.EVENT_RBUTTONDOWN:
             if len(self.temp_points) >= 3:
+                area_idx = len(self.restricted_areas)
                 self.restricted_areas.append(self.temp_points.copy())
+                
+                # Initialize status for new area
+                self.area_intrusion_status[area_idx] = False
+                self.area_last_intrusion_time[area_idx] = None
+                
                 print(
                     f"Restricted area {len(self.restricted_areas)} created with {len(self.temp_points)} points"
                 )
@@ -544,6 +657,7 @@ class RestrictedAreaMonitor:
 
                 # Draw everything on frame
                 self.draw_restricted_areas(frame)
+                self.draw_status_circles(frame)  # Draw status circles
                 self.draw_detections(frame, person_detections, intrusions)
 
                 # Draw temporary points in setup mode
@@ -649,7 +763,13 @@ class RestrictedAreaMonitor:
                     else:
                         print("Exited setup mode")
                         if len(self.temp_points) >= 3:
+                            area_idx = len(self.restricted_areas)
                             self.restricted_areas.append(self.temp_points.copy())
+                            
+                            # Initialize status for new area
+                            self.area_intrusion_status[area_idx] = False
+                            self.area_last_intrusion_time[area_idx] = None
+                            
                             print(
                                 f"Automatically added last area with {len(self.temp_points)} points"
                             )
@@ -657,10 +777,15 @@ class RestrictedAreaMonitor:
                         self.temp_points = []
                 elif key == ord("c"):
                     self.restricted_areas = []
+                    self.area_intrusion_status = {}
+                    self.area_last_intrusion_time = {}
                     self.save_areas()
                     print("All restricted areas cleared")
                 elif key == ord("r"):
                     self.alert_active = False
+                    # Reset all area statuses
+                    for i in range(len(self.restricted_areas)):
+                        self.area_intrusion_status[i] = False
                     print("Alert reset")
 
         finally:
@@ -669,18 +794,15 @@ class RestrictedAreaMonitor:
             if self.capture_thread:
                 self.capture_thread.join(timeout=2)
 
-            if self.cap:
+            if self.cap and self.cap.isOpened():
                 self.cap.release()
 
-            # Release video writer
             if self.video_writer:
                 self.video_writer.release()
-                if self.save_output:
-                    print(f"✅ Output video saved to: {self.output_path}")
 
             cv2.destroyAllWindows()
             pygame.mixer.quit()
-            print("✅ System shutdown complete")
+            print("✅ Monitoring system stopped.")
 
 
 if __name__ == "__main__":
